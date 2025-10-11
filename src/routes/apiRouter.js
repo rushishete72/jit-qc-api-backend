@@ -14,16 +14,16 @@ const router = express.Router();
 // -------------------------------------------------------------------------
 
 // Auth Module Routes
-const authRoutes = require('../src/modules/auth/userAuth/userAuth.route'); 
+const authRoutes = require('../../src/modules/auth/userAuth/userAuth.route'); 
 
 // Master Data Modules
-const uomRoutes = require('../src/modules/masterData/uom/uom.route'); 
-const roleRoutes = require('../src/modules/masterData/roles/role.route');
+const uomRoutes = require('../../src/modules/masterData/uom/uom.route'); 
+const roleRoutes = require('../../src/modules/masterData/roles/role.route');
 
 // Master Modules
-const partRoutes = require('../src/modules/master/parts/part.route');
+const partRoutes = require('../../src/modules/master/parts/part.route');
 // ✅ FIX: Users Module Route को आयात करें
-const userRoutes = require('../src/modules/master/users/user.route'); 
+const userRoutes = require('../../src/modules/master/users/user.route'); 
 
 // -------------------------------------------------------------------------
 // Route Middleware & Grouping

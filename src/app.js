@@ -22,7 +22,7 @@ const { APIError, errorHandlerMiddleware } = require('./utils/errorHandler.js');
  * @type {express.Router} apiRouter - मुख्य एग्रीगेटर राउटर जो सभी 
  * फ़ीचर-स्पेसिफिक राउट्स (जैसे users, products) को एक साथ जोड़ता है।
  */
-const apiRouter = require('../routes/apiRouter.js'); 
+const apiRouter = require('../src/routes/apiRouter.js'); 
 
 /**
  * @type {express.Application} app - मुख्य Express एप्लिकेशन इंस्टेंस।
