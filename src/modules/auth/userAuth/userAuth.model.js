@@ -24,23 +24,22 @@ const OTP_SALT_ROUNDS = 10;
  * @returns {Promise<void>}
  * @throws {APIError} यदि डेटाबेस में 'roles' तालिका मौजूद नहीं है।
  */
-const ensureDefaultRoleExists = async (roleName) => {
-    try {
-        // ✅ FIX: `description` कॉलम को हटा दिया गया है
-        const query = `
-            INSERT INTO roles (role_name)
-            VALUES ($1)
-            ON CONFLICT (role_name) DO NOTHING;
-        `;
-        await db.none(query, [roleName]);
-        console.log(`[DB Setup] Ensured default role '${roleName}' exists without description.`);
-    } catch (error) {
-        // यह त्रुटि अभी भी हो सकती है यदि roles टेबल मौजूद नहीं है
-        console.error("CRITICAL SQL ERROR during ensureDefaultRoleExists:", error.message || error); 
-        throw new APIError(`Database setup failed for role '${roleName}'. The 'roles' table might be missing.`, 500);
-    }
-}
 
+
+const ensureDefaultRoleExists = async (roleName) => {
+    try {
+        // ✅ FIX: The query is collapsed into a single line to eliminate leading whitespace errors.
+        const query = `INSERT INTO roles (role_name) VALUES ($1) ON CONFLICT (role_name) DO NOTHING;`;
+        
+        await db.none(query, [roleName]);
+        console.log(`[DB Setup] Ensured default role '${roleName}' exists.`);
+        
+    } catch (error) {
+        // The error handling remains correct to check for the missing 'roles' table.
+        console.error("CRITICAL SQL ERROR during ensureDefaultRoleExists:", error.message || error); 
+        throw new APIError(`Database setup failed for role '${roleName}'. The 'roles' table might be missing.`, 500);
+    }
+};
 
 // =========================================================================
 // A. USER & OTP MANAGEMENT
@@ -70,21 +69,20 @@ const getUserByEmail = async (email) => {
  * @returns {Promise<object>} नए उपयोगकर्ता का प्रोफ़ाइल डेटा।
  * @throws {APIError} यदि ईमेल पहले से मौजूद है (409) या DB विफल हो जाता है (500)।
  */
+
 const registerUser = async (email, fullName, defaultRoleName = 'Client') => {
     try {
         // पहले डिफ़ॉल्ट भूमिका सुनिश्चित करें (जो अब ठीक हो गया है)
-        await ensureDefaultRoleExists(defaultRoleName);
+//         await ensureDefaultRoleExists(defaultRoleName);
 
         // यह क्वेरी अभी भी role_id, full_name, user_id पर निर्भर करती है
-        const query = `
-            WITH RoleID AS (
-                SELECT role_id FROM roles WHERE role_name = $3
-            )
-            INSERT INTO users (email, full_name, role_id, is_active, is_verified)
-            SELECT $1, $2, RoleID.role_id, TRUE, FALSE
-            FROM RoleID
-            RETURNING user_id, email, full_name, role_id
-        `;
+       const query = `
+            WITH RoleID AS (SELECT role_id FROM roles WHERE role_name = $3) 
+            INSERT INTO users (email, full_name, role_id, is_active, is_verified) 
+            SELECT $1, $2, RoleID.role_id, TRUE, FALSE FROM RoleID 
+            RETURNING user_id, email, full_name, role_id
+        `;
+        
         
         const newUser = await db.one(query, [email, fullName || email.split('@')[0], defaultRoleName]); 
         
