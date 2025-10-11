@@ -1,10 +1,21 @@
-// database/db.js (SIMPLIFIED FIX)
+/**
+ * @fileoverview Database Connection Module: Initializes and exports the PostgreSQL connection using pg-promise.
+ * @description यह मॉड्यूल पर्यावरण चर (environment variables) से कनेक्शन विवरण लोड करता है, 
+ * SSL को क्लाउड होस्टिंग (जैसे Render) के लिए कॉन्फ़िगर करता है, और कनेक्शन जांच 
+ * और स्कीमा रीसेट के लिए यूटिलिटीज प्रदान करता है।
+ * @module database/db
+ */
 
 const pgp = require('pg-promise')({
+    /** Enables formatting helpers like $1^ for SQL names */
     capSQL: true, 
+    /** Log queries in development mode */
     query: (e) => {
         if (process.env.NODE_ENV === 'development') {
-            // Log slow queries or basic info here
+            // FIX: Check for the existence of ctx and duration before accessing to prevent crash.
+            if (e.ctx && e.ctx.duration && e.ctx.duration > 100) {
+                 console.log(`[DB SLOW] ${e.query.substring(0, 50)}... (${e.ctx.duration.toFixed(2)}ms)`);
+            }
         }
     }
 });
@@ -20,49 +31,65 @@ const isSSL = process.env.DB_SSL === 'true';
 
 // SSL Configuration for Render/external DBs
 const sslConfig = isSSL ? { 
+    // Render/Cloud DBs के लिए आवश्यक है
     rejectUnauthorized: false, 
+    // कुछ Node.js वर्ज़न को स्पष्ट SSL मोड की आवश्यकता होती है
     require: true 
 } : false;
 
+
+/**
+ * @typedef {object} DbConfig
+ * @property {string} connectionString - The full secure URL.
+ * @property {object|boolean} ssl - SSL configuration for secure connection.
+ * @property {number} max - Maximum number of connections in the pool.
+ */
 
 // -------------------------------------------------------------------------
 // 🔑 CONNECTION CONFIGURATION
 // -------------------------------------------------------------------------
 
+/** @type {DbConfig} */
 const dbConfig = {
     connectionString: connectionString,
     ssl: sslConfig, // URL with explicit SSL configuration
-    max: 10 
+    max: 10 // Max connections in the pool
 };
 
+/** The initialized database connection object. */
 const db = pgp(dbConfig);
 
 
 /**
  * DB Connection Check: Attempts a connection to verify credentials and reachability.
- * Uses db.connect() to test the pool.
  * @async
+ * @returns {Promise<void>} Resolves if connection is successful.
+ * @throws {Error} Throws error if connection fails.
  */
 async function initializeDB() {
     console.log('--- ⏳ Performing Database Pre-Flight Check... ---');
     try {
-        const client = await db.connect(); 
-        client.done(); 
+        const client = await db.connect(); // Attempts to borrow a connection
+        client.done(); // Releases the connection back to the pool
         console.log("✅ Database connection established successfully.");
     } catch (error) {
         console.error("❌ Database Connection Failed. Check DATABASE_URL and host status.");
+        // Now show error.message for clear SSL/Host issue diagnosis
         throw new Error(`DB Connection Failed: ${error.message}`); 
     }
 }
 
 /**
- * Utility: Securely drops all User-Defined Tables and types (like ENUMs).
+ * Utility: Securely drops all User-Defined Tables and custom types (like ENUMs) in the public schema (CASCADE).
+ * This is primarily used during development/testing for schema resets.
  * @async
+ * @returns {Promise<void>} Resolves when all tables are dropped or if none were found.
+ * @throws {Error} Throws error if the drop process fails.
  */
 async function dropAllTables() {
     console.log('--- 🧹 Dropping all existing user tables and types (CASCADE) ---');
     
-    // 1. Drop all custom types/enums (important before dropping tables)
+    // 1. Drop all custom types/enums (e.g., user_role)
     await db.none(`
         DROP TYPE IF EXISTS user_role CASCADE;
     `);
@@ -76,7 +103,7 @@ async function dropAllTables() {
     `);
 
     if (tableNames.length > 0) {
-        // Construct the DROP TABLE CASCADE statement
+        // Format drop queries securely using pgp.as.format
         const dropQueries = tableNames.map(t => pgp.as.format('DROP TABLE IF EXISTS "$1^" CASCADE;', t.tablename));
         const finalDropQuery = dropQueries.join('; ');
         
@@ -89,8 +116,8 @@ async function dropAllTables() {
 
 
 module.exports = {
-    db, 
-    pgp, 
-    dropAllTables, 
-    initializeDB 
+    db, // The main database instance
+    pgp, // The pg-promise library instance
+    dropAllTables, // Utility to clean schema
+    initializeDB // Utility to check connection
 };
