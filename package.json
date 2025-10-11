@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js", 
-    "db:seed": "node database/seed/reset_and_seed.js",
+    "db:seed": "node database/reset_and_seed.js",
     "test:api": "jest --testPathPattern=tests/api",
     "test": "npm run test:api"
   },
