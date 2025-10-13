@@ -1,123 +1,98 @@
-/**
- * @fileoverview Database Connection Module: Initializes and exports the PostgreSQL connection using pg-promise.
- * @description यह मॉड्यूल पर्यावरण चर (environment variables) से कनेक्शन विवरण लोड करता है, 
- * SSL को क्लाउड होस्टिंग (जैसे Render) के लिए कॉन्फ़िगर करता है, और कनेक्शन जांच 
- * और स्कीमा रीसेट के लिए यूटिलिटीज प्रदान करता है।
- * @module database/db
- */
+// database/db.js (Final Optimized Version)
 
 const pgp = require('pg-promise')({
-    /** Enables formatting helpers like $1^ for SQL names */
+    // ✅ Custom pgp options for better logging and query formatting
     capSQL: true, 
-    /** Log queries in development mode */
     query: (e) => {
         if (process.env.NODE_ENV === 'development') {
-            // FIX: Check for the existence of ctx and duration before accessing to prevent crash.
-            if (e.ctx && e.ctx.duration && e.ctx.duration > 100) {
-                 console.log(`[DB SLOW] ${e.query.substring(0, 50)}... (${e.ctx.duration.toFixed(2)}ms)`);
-            }
+             // console.log('QUERY:', e.query); // आप चाहें तो query लॉगिंग को अनकमेंट कर सकते हैं
         }
     }
 });
 
-const connectionString = process.env.DATABASE_URL;
+const config = require('../src/config/index');
 
-if (!connectionString) {
-    // We enforce the use of DATABASE_URL for simplicity and Render compatibility
-    throw new Error("❌ CRITICAL ERROR: DATABASE_URL is not set in environment variables.");
-}
-
-const isSSL = process.env.DB_SSL === 'true';
-
-// SSL Configuration for Render/external DBs
-const sslConfig = isSSL ? { 
-    // Render/Cloud DBs के लिए आवश्यक है
-    rejectUnauthorized: false, 
-    // कुछ Node.js वर्ज़न को स्पष्ट SSL मोड की आवश्यकता होती है
-    require: true 
-} : false;
-
-
-/**
- * @typedef {object} DbConfig
- * @property {string} connectionString - The full secure URL.
- * @property {object|boolean} ssl - SSL configuration for secure connection.
- * @property {number} max - Maximum number of connections in the pool.
- */
-
-// -------------------------------------------------------------------------
-// 🔑 CONNECTION CONFIGURATION
-// -------------------------------------------------------------------------
-
-/** @type {DbConfig} */
-const dbConfig = {
-    connectionString: connectionString,
-    ssl: sslConfig, // URL with explicit SSL configuration
-    max: 10 // Max connections in the pool
+// Connection details from the config module
+const cn = {
+    // Render/Cloud URL को प्राथमिकता दें, लेकिन यदि local उपयोग कर रहे हैं तो detail fallback यहाँ है
+    connectionString: config.DB.DATABASE_URL,
+    
+    // Fallback details (used implicitly by pg-promise if connectionString is complex/unavailable)
+    host: config.DB.DB_HOST,
+    port: config.DB.DB_PORT, 
+    database: config.DB.DB_NAME,
+    user: config.DB.DB_USER,
+    password: config.DB.DB_PASSWORD,
+    
+    // ✅ SSL Configuration for cloud databases like Render
+    ssl: config.DB.DB_SSL ? { rejectUnauthorized: false } : false,
+    max: 10 
 };
 
-/** The initialized database connection object. */
-const db = pgp(dbConfig);
-
-
-/**
- * DB Connection Check: Attempts a connection to verify credentials and reachability.
- * @async
- * @returns {Promise<void>} Resolves if connection is successful.
- * @throws {Error} Throws error if connection fails.
- */
-async function initializeDB() {
-    console.log('--- ⏳ Performing Database Pre-Flight Check... ---');
-    try {
-        const client = await db.connect(); // Attempts to borrow a connection
-        client.done(); // Releases the connection back to the pool
-        console.log("✅ Database connection established successfully.");
-    } catch (error) {
-        console.error("❌ Database Connection Failed. Check DATABASE_URL and host status.");
-        // Now show error.message for clear SSL/Host issue diagnosis
-        throw new Error(`DB Connection Failed: ${error.message}`); 
-    }
+// CRITICAL check (handled better by config/index.js now, but good to keep a final check)
+if (!cn.connectionString && (!cn.database || !cn.user || !cn.password)) {
+    console.error("❌ CRITICAL ERROR: Missing DATABASE_URL or required local DB credentials.");
+    // Fail fast
+    process.exit(1);
 }
 
+const db = pgp(cn);
+
 /**
- * Utility: Securely drops all User-Defined Tables and custom types (like ENUMs) in the public schema (CASCADE).
- * This is primarily used during development/testing for schema resets.
- * @async
- * @returns {Promise<void>} Resolves when all tables are dropped or if none were found.
- * @throws {Error} Throws error if the drop process fails.
+ * Utility: Securely drops all User-Defined Tables in the public schema (CASCADE).
+ * Used by the reset_and_seed script for a clean environment.
  */
 async function dropAllTables() {
-    console.log('--- 🧹 Dropping all existing user tables and types (CASCADE) ---');
+    console.log('--- 🧹 Dropping all existing user tables (CASCADE) ---');
     
-    // 1. Drop all custom types/enums (e.g., user_role)
-    await db.none(`
-        DROP TYPE IF EXISTS user_role CASCADE;
-    `);
-
-    // 2. Get and Drop Tables
-    const tableNames = await db.any(`
+    const query = `
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public' 
         AND tablename NOT LIKE 'pg_%' 
         AND tablename NOT LIKE 'sql_%';
-    `);
+    `;
+    
+    try {
+        const tables = await db.any(query);
+        
+        if (tables.length === 0) {
+            console.log('--- ℹ️ No user tables found to drop. Skipping. ---');
+            return;
+        }
 
-    if (tableNames.length > 0) {
-        // Format drop queries securely using pgp.as.format
-        const dropQueries = tableNames.map(t => pgp.as.format('DROP TABLE IF EXISTS "$1^" CASCADE;', t.tablename));
-        const finalDropQuery = dropQueries.join('; ');
+        const dropQueries = tables.map(t => pgp.as.format('DROP TABLE IF EXISTS "$1^" CASCADE;', t.tablename));
+        const finalDropQuery = dropQueries.join('\n');
         
         await db.none(finalDropQuery);
-        console.log(`✅ Successfully dropped ${tableNames.length} tables.`);
-    } else {
-        console.log('--- ℹ️ No user tables found to drop. ---');
+        console.log(`✅ Successfully dropped ${tables.length} tables.`);
+
+    } catch (error) {
+        console.error('❌ ERROR during table drop process:', error.message);
+        throw error; 
+    }
+}
+
+/**
+ * DB Connection Check: Attempts a connection to verify credentials and reachability.
+ * Used at application startup.
+ */
+async function initializeDB() {
+    console.log('--- ⏳ Performing Database Pre-Flight Check... ---');
+    try {
+        // Use db.connect() to verify connection pool health
+        const client = await db.connect(); 
+        client.done(); // Release the connection back to the pool
+        console.log("✅ Database connection established successfully.");
+    } catch (error) {
+        console.error("❌ Database Connection Failed. Check environment variables and host status.");
+        throw new Error(`DB Connection Failed: ${error.message}`); 
     }
 }
 
 
 module.exports = {
-    db, // The main database instance
-    pgp, // The pg-promise library instance
-    dropAllTables, // Utility to clean schema
-    initializeDB // Utility to check connection
+    db, 
+    pgp,
+    dropAllTables, 
+    initializeDB
 };
