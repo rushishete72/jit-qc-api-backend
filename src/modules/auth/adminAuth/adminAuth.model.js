@@ -22,10 +22,10 @@ const DEFAULT_BASIC_USER_ROLE_ID = 4; // Assuming 4 is the default role for appr
  */
 const getPendingRequests = async () => {
     const query = `
-        SELECT request_id, full_name, email, justification_message, created_at
+        SELECT request_id, full_name, email, justification_message, requested_at
         FROM registration_requests
         WHERE status = 'PENDING'
-        ORDER BY created_at ASC;
+        ORDER BY requested_at ASC;
     `;
     return db.any(query);
 };
@@ -38,7 +38,11 @@ const getPendingRequests = async () => {
  * @returns {Promise<Object>} The newly created user object.
  * @throws {APIError} If the request is not found or is not pending.
  */
-const approveRegistration = async (requestId, approvedById) => {
+
+/**
+ * Approves a registration request, creates a new user, and archives the request.
+ */
+const approveRegistration = async (requestId, approvedById, roleIdToAssign) => {
     let newUser;
     
     // pg-promise transaction management
@@ -56,26 +60,37 @@ const approveRegistration = async (requestId, approvedById) => {
         // 2. Insert the new user into the users table
         const hashedPassword = await bcrypt.hash(request.password_hash, HASH_SALT_ROUNDS);
         
+        // CRITICAL FIX 1 & 2: Added updated_by to target columns.
         const userInsertQuery = `
-            INSERT INTO users (email, full_name, password_hash, role_id, is_active, is_verified, created_by)
-            VALUES ($1, $2, $3, $4, TRUE, TRUE, $5)
+            INSERT INTO users (
+                email, 
+                full_name, 
+                password_hash, 
+                role_id, 
+                is_active, 
+                is_verified, 
+                created_by, 
+                updated_by 
+            )
+            -- Values ($1 to $4 for user data, $5 for approvedById (used twice))
+            VALUES ($1, $2, $3, $4, TRUE, TRUE, $5, $5) 
             RETURNING user_id, email, full_name, role_id;
         `;
         
-        // We typically assign a default Basic User role upon approval (Role ID 4 assumed)
+        // CRITICAL FIX 3: Passed the correct roleIdToAssign ($4) and approvedById ($5).
         newUser = await t.one(userInsertQuery, [
             request.email,
             request.full_name,
             hashedPassword,
-            DEFAULT_BASIC_USER_ROLE_ID, 
-            approvedById
+            roleIdToAssign, // $4: The Role ID passed from the controller/body
+            approvedById    // $5: The Admin's ID for created_by and updated_by
         ]);
 
         // 3. Update the registration request status to APPROVED
         const requestUpdateQuery = `
             UPDATE registration_requests 
             SET status = 'APPROVED', 
-                processed_by = $2, 
+                approved_by = $2,         -- ⭐️ FIX 1: Renamed 'processed_by' to 'approved_by'
                 processed_at = CURRENT_TIMESTAMP
             WHERE request_id = $1;
         `;
@@ -240,7 +255,22 @@ const assignPermissionToRole = async (roleId, permissionId) => {
 };
 
 
+/**
+ * Retrieves all defined roles in the system.
+ * Used for populating role selection lists in the admin panel.
+ * @returns {Promise<Array<Object>>} List of all roles (role_id, role_name, description).
+ */
+const getAllRoles = async () => {
+    const query = `
+        SELECT role_id, role_name, description, is_active, created_at , created_by
+        FROM roles
+        ORDER BY role_id ASC;
+    `;
+    return db.any(query);
+};
+
 module.exports = {
+    getAllRoles,
     getPendingRequests,
     approveRegistration,
     rejectRegistration,

@@ -28,13 +28,18 @@ const getPendingRequests = asyncHandler(async (req, res) => {
 const approveRegistration = asyncHandler(async (req, res) => {
     const requestId = parseInt(req.body.requestId, 10); 
     const approvedById = req.user.userId; 
+   const roleIdToAssign = parseInt(req.body.role_Id, 10);
 
     if (isNaN(requestId) || requestId <= 0) {
         throw new APIError('Invalid Registration Request ID provided.', 400);
     }
 
+     if (isNaN(roleIdToAssign) || roleIdToAssign <= 0) {
+        throw new APIError('Invalid Role ID provided for assignment.', 400);
+    }
+
     // 1. Transactional Approval Logic (Model handles user creation and request update)
-    const newUser = await adminAuthModel.approveRegistration(requestId, approvedById);
+    const newUser = await adminAuthModel.approveRegistration(requestId, approvedById, roleIdToAssign);
     
     // 2. Email sending logic (FIXED FUNCTION NAME)
     await emailService.sendApprovalConfirmationToUser({
@@ -165,6 +170,23 @@ const assignPermissionToRole = asyncHandler(async (req, res) => {
     });
 });
 
+// ===============================================
+// D. ROLE LISTING (Required for Admin UI)
+// ===============================================
+
+/**
+ * GET: Retrieves all available roles in the system. (Requires USER_READ_ALL)
+ */
+const getAllRoles = asyncHandler(async (req, res) => {
+    const roles = await adminAuthModel.getAllRoles();
+    res.status(200).json({ 
+        status: 'success', 
+        count: roles.length, 
+        data: roles 
+    });
+});
+
+
 
 module.exports = {
     getPendingRequests,
@@ -174,5 +196,6 @@ module.exports = {
     changeUserRole,
     deactivateUser,
     activateUser, // 🆕 NEW
-    assignPermissionToRole // 🌟 NEW SUPER ADMIN FEATURE
+    assignPermissionToRole, // 🌟 NEW SUPER ADMIN FEATURE
+    getAllRoles
 };

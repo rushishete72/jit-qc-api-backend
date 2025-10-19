@@ -95,4 +95,20 @@ router.post(
 );
 
 
+
+
+// -------------------------------------------------------------
+// D. ROLE LISTING
+// -------------------------------------------------------------
+
+// 9. GET /api/auth/admin/roles - Get all available roles
+router.get(
+    '/roles', // 🆕 NEW ROUTE
+    authenticate,
+    authorize(USER_READ_ALL), // Standard read permission is sufficient
+    adminAuthController.getAllRoles
+);
+
+
+
 module.exports = router;

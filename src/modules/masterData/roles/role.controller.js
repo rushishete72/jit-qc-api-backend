@@ -39,13 +39,13 @@ const getRoleById = asyncHandler(async (req, res) => {
 
 // POST /api/master/roles
 const createRole = asyncHandler(async (req, res) => {
-    const { role_name, description } = req.body;
-    
+    const { role_name, description, is_active} = req.body;
+    const created_by=parseInt(req.body.created_by, 10);
     if (!role_name) {
         throw new APIError('Role name is required.', 400);
     }
 
-    const newRole = await model.create({ role_name, description });
+    const newRole = await model.create({ role_name, description, is_active, created_by});
     
     res.status(201).json({
         status: 'success',

@@ -11,7 +11,7 @@ const { APIError } = require('../../../utils/errorHandler');
 
 async function findAll() {
     // Roles अक्सर छोटे होते हैं, इसलिए उन्हें फ़िल्टरिंग या जॉइन की आवश्यकता नहीं होती है
-    const query = 'SELECT role_id, role_name, description, is_active FROM roles ORDER BY role_id;';
+    const query = 'SELECT role_id, role_name, description, is_active, created_by, created_at FROM roles ORDER BY role_id;';
     return db.any(query);
 }
 
@@ -30,12 +30,12 @@ async function findById(roleId) {
 async function create(roleData) {
     try {
         const query = `
-            INSERT INTO roles (role_name, description, is_active)
-            VALUES ($1, $2, TRUE)
-            RETURNING role_id, role_name, description, is_active;
+            INSERT INTO roles (role_name, description, is_active, created_by)
+            VALUES ($1, $2, $3, $4)
+            RETURNING role_id, role_name, description, is_active, created_by;
         `;
         // role_name को UNIQUE constraint के रूप में मान रहे हैं
-        return await db.one(query, [roleData.role_name, roleData.description]);
+        return await db.one(query, [roleData.role_name, roleData.description, roleData.is_active, roleData.created_by]);
         
     } catch (error) {
         if (error.code === '23505') { 
