@@ -1,71 +1,129 @@
-// resetAndSeedDatabase.js (Generic Version)
+// File: database/reset_and_seed.js (FINAL ZT FIX - Drop Logic Integrated)
 
 const fs = require('fs');
 const path = require('path');
-const { db, pgp, dropAllTables } = require('./db'); 
+// ✅ FIXED IMPORT: dropAllTables को db.js से import नहीं करते
+const { db, pgp, initializeDB } = require('./db'); 
 
-// 🎯 कॉन्फ़िगरेशन: फ़ोल्डर जहाँ आपकी स्कीमा और सीड फ़ाइलें हैं।
-const SCHEMA_DIR = path.join(__dirname, 'schema_modules');
+// 🎯 कॉन्फ़िगरेशन
+const SCHEMA_DIR = path.join(__dirname, 'schema_modules'); 
 const SEED_DIR = path.join(__dirname, 'seed_data');
 
 /**
- * फ़ाइल सिस्टम से सभी .sql फ़ाइलों को अल्फाबेटिक क्रम में पढ़ता है।
- * @param {string} dirPath - फ़ोल्डर का पथ (directory path)
- * @returns {string[]} - सॉर्ट की गई फ़ाइल पथों की ऐरे।
+ * फ़ाइल सिस्टम से सभी .sql फ़ाइलों को पढ़ता है।
  */
 function getSqlFiles(dirPath) {
     try {
-        // 1. सभी फ़ाइलों को पढ़ें
         const files = fs.readdirSync(dirPath);
-        
-        // 2. केवल .sql फ़ाइलें फ़िल्टर करें और सॉर्ट करें (ताकि order में रहें)
         return files
             .filter(file => file.endsWith('.sql'))
-            .sort() // Ensure they run in order (e.g., 01_auth.sql, 02_master.sql)
+            .sort() 
             .map(file => path.join(dirPath, file));
-            
     } catch (error) {
         console.error(`❌ Error reading directory ${dirPath}:`, error.message);
         return [];
     }
 }
 
-async function resetAndSeedDatabase() {
-    console.log('\n--- ⏳ Starting Generic Database Reset and Seeding ---');
+/**
+ * ⚡️ DDL Runner का अपना dropAllTables फ़ंक्शन।
+ */
+async function dropAllTables() {
+    console.log('--- 🧹 Dropping all existing user tables (CASCADE) ---');
     
-    // 1. फ़ाइलों को ढूँढें
+    const query = `
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public' 
+        AND tablename NOT LIKE 'pg_%' 
+        AND tablename NOT LIKE 'sql_%';
+    `;
+    
+    try {
+        const tables = await db.any(query);
+        
+        if (tables.length === 0) {
+            console.log('--- ℹ️ No user tables found to drop. Skipping. ---');
+            return;
+        }
+
+        const dropQueries = tables.map(t => pgp.as.format('DROP TABLE IF EXISTS "$1^" CASCADE;', [t.tablename]));
+        const finalDropQuery = dropQueries.join('\n');
+        
+        await db.none(finalDropQuery);
+        console.log(`✅ Successfully dropped ${tables.length} tables.`);
+
+    } catch (error) {
+        console.error('❌ ERROR during table drop process:', error.message);
+        throw error; 
+    }
+}
+
+
+/**
+ * DDL Runner फ़ंक्शन।
+ */
+async function executeSchema(files, forceReset = false) {
+    if (forceReset) {
+        console.log('--- ⚠️ FORCE RESET: Executing Dynamic Drop. ---');
+        await dropAllTables(); // 👈 अपनी लोकल ड्रॉप फ़ंक्शन को कॉल करता है
+    }
+    
+    for (const file of files) {
+        const fileName = path.basename(file);
+        console.log(`--- Executing DDL: ${fileName}`);
+        const schemaSQL = fs.readFileSync(file, { encoding: 'utf-8' });
+        try {
+            await db.none(schemaSQL);
+            console.log(`✅ Schema ${fileName} processed.`);
+        } catch (error) {
+            console.error(`❌ DDL Execution FAILED in file ${fileName}:`, error.message);
+            throw error; 
+        }
+    }
+}
+
+
+/**
+ * मुख्य processDatabase फ़ंक्शन।
+ */
+async function processDatabase(resetAndSeed = true, forceReset = false) {
+    console.log('\n--- ⏳ Starting JIT/QC Database Setup... ---');
+
+    // 💡 FIX: initializeDB को db.js से कॉल करें
+    try {
+        await initializeDB(); 
+    } catch (error) {
+        console.error('❌ FATAL: Database Connection Failed (Check password in db.js)');
+        pgp.end();
+        process.exit(1);
+    }
+    
+    // ... बाकी लॉजिक वैसा ही रहेगा
     const schemaFiles = getSqlFiles(SCHEMA_DIR);
     const seedFiles = getSqlFiles(SEED_DIR);
 
     if (schemaFiles.length === 0) {
         console.error('❌ No schema SQL files found. Exiting.');
+        pgp.end();
         process.exit(1);
     }
-    
+
     try {
-        // 2. Clean the schema 
-        await dropAllTables(); 
-        console.log('✅ All existing tables dropped successfully.');
+        await executeSchema(schemaFiles, forceReset);
+        console.log('✅ All Schemas processed successfully (No full drop unless forced).');
         
-        // 3. Read and execute ALL Schema creation files
-        for (const file of schemaFiles) {
-            console.log(`--- Executing Schema: ${path.basename(file)}`);
-            const schemaSQL = fs.readFileSync(file, { encoding: 'utf-8' });
-            await db.none(schemaSQL);
-            console.log('✅ Schemas created successfully.');
+        if (resetAndSeed) {
+            console.log('\n--- 🌱 Executing Seed Data... ---');
+            for (const file of seedFiles) {
+                const fileName = path.basename(file);
+                console.log(`--- Seeding Data: ${fileName}`);
+                const seedSQL = fs.readFileSync(file, { encoding: 'utf-8' });
+                await db.none(seedSQL);
+                console.log(`✅ Seed data ${fileName} loaded successfully.`);
+            }
         }
-
-        // 4. Read and execute ALL Seed Data files
-        for (const file of seedFiles) {
-            console.log(`--- Executing Seed Data: ${path.basename(file)}`);
-            const seedSQL = fs.readFileSync(file, { encoding: 'utf-8' });
-            await db.none(seedSQL);
-            console.log('✅ Seed data loaded successfully.');
-        }
-
     } catch (error) {
-        console.error('❌ Database Reset/Seed FAILED!');
-        // Error handling needs to be robust to pinpoint the failing file/query
+        console.error('❌ Database Setup FAILED!');
         console.error(error);
         process.exit(1);
     } finally {
@@ -74,4 +132,9 @@ async function resetAndSeedDatabase() {
     }
 }
 
-resetAndSeedDatabase();
+// CLI Execution:
+const args = process.argv.slice(2);
+const forceReset = args.includes('--force-reset');
+const runSeed = !args.includes('--no-seed'); 
+
+processDatabase(runSeed, forceReset);

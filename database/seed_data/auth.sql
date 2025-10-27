@@ -3,30 +3,38 @@
  * Inserts core roles, permissions, and the initial Super Admin user.
  */
 
--- NOTE: Replace the hash below with your actual generated hash if it is different!
-
 -- ----------------------------------------------------
--- A. Insert Core Roles (SPACE ADDED)
+-- A. Insert Core Roles (ON CONFLICT on UNIQUE Column role_name)
 -- ----------------------------------------------------
 INSERT INTO roles (role_id, role_name, description, is_active) VALUES
 (1, 'Super_Admin', 'Full system access and primary configuration.', TRUE),
 (2, 'Admin', 'Operational administrator for module data.', TRUE),
 (3, 'QC_Manager', 'Can approve requests and manage quality control tasks.', TRUE), 
 (4, 'Basic_User', 'Standard user access, data entry only.', TRUE) 
-ON CONFLICT (role_id) DO UPDATE SET role_name = EXCLUDED.role_name;
+ON CONFLICT (role_name) 
+DO UPDATE SET 
+    role_name = EXCLUDED.role_name,
+    description = EXCLUDED.description,
+    is_active = EXCLUDED.is_active;
 
 
 -- ----------------------------------------------------
--- B. Insert Initial Super Admin User (SPACE ADDED)
+-- B. Insert Initial Super Admin User (ON CONFLICT on UNIQUE Column email)
 -- ----------------------------------------------------
 
 INSERT INTO users (user_id, email, full_name, password_hash, role_id, is_active, is_verified) VALUES
 (1, 'rushishete72@gmail.com', 'System Super Admin', '$2a$10$hx/7bGccsLhjceCCgRMwv.QtPy5W/DWNtPyErAqX56cjy2qRtUn1.', 1, TRUE, TRUE)
-ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
+ON CONFLICT (email) 
+DO UPDATE SET 
+    password_hash = EXCLUDED.password_hash,
+    full_name = EXCLUDED.full_name,
+    role_id = EXCLUDED.role_id,
+    is_active = EXCLUDED.is_active,
+    is_verified = EXCLUDED.is_verified;
 
 
 -- ----------------------------------------------------
--- C. Insert Core Permissions (SPACE ADDED)
+-- C. Insert Core Permissions (ON CONFLICT on UNIQUE Column permission_code)
 -- ----------------------------------------------------
 
 INSERT INTO permissions (permission_id, permission_code, description, created_by) VALUES
@@ -37,11 +45,14 @@ INSERT INTO permissions (permission_id, permission_code, description, created_by
 (5, 'PART_CREATE', 'Allows creation of new inventory parts.', 1),
 (6, 'PART_UPDATE', 'Allows updating existing inventory parts.', 1),
 (7, 'ROLE_MANAGE', 'Allows creation, update, and deletion of Roles and Permissions (RBAC Config).', 1)
-ON CONFLICT (permission_id) DO UPDATE SET permission_code = EXCLUDED.permission_code;
+ON CONFLICT (permission_code) 
+DO UPDATE SET 
+    description = EXCLUDED.description;
 
 
 -- ----------------------------------------------------
--- D. Link Roles to Permissions (ROLE_PERMISSIONS) (SPACE ADDED)
+-- D. Link Roles to Permissions (ROLE_PERMISSIONS) 
+-- ON CONFLICT DO NOTHING added to all blocks.
 -- ----------------------------------------------------
 
 -- 1. Super Admin (Role ID 1):
@@ -50,22 +61,22 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 ON CONFLICT DO NOTHING;
 
 
--- 2. Admin (Role ID 2): Operational Management Permissions (SPACE ADDED)
+-- 2. Admin (Role ID 2): Operational Management Permissions
 INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- User Management & Approval
 (2, 1), -- USER_APPROVE
 (2, 2), -- VIEW_PENDING
-(2, 3), -- USER_CHANGE_ROLE (Can change roles, but not Super Admin's)
-(2, 4), -- USER_DEACTIVATE (Can deactivate users, but not themselves or Super Admin)
+(2, 3), -- USER_CHANGE_ROLE
+(2, 4), -- USER_DEACTIVATE
 -- Master Data Management
 (2, 5), -- PART_CREATE
 (2, 6) -- PART_UPDATE
 ON CONFLICT DO NOTHING;
 
 
--- 3. QC Manager (Role ID 3): Approval aur Viewing (Example) (SPACE ADDED)
+-- 3. QC Manager (Role ID 3): Approval aur Viewing (Example)
 INSERT INTO role_permissions (role_id, permission_id) VALUES
-(3, 2) -- VIEW_PENDING (Can see, but not approve)
+(3, 2) -- VIEW_PENDING
 ON CONFLICT DO NOTHING;
 
 
